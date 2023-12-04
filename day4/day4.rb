@@ -9,7 +9,6 @@ def find_winners(line)
   game_numbers.select { |num| winning_numbers.include?(num) }
 end
 
-# 24542
 def part_one
   input = File.read('day4/input.txt').split("\n")
   card_scores = input.map do |line|
