@@ -49,7 +49,7 @@ def convert_seeds(seed_ranges, mapping)
 
     # Add the overlapping range to the MAPPED value
     mapped_range = SeedRange.new(start: found_mapping[1] + overlap_start, length: overlap_end - overlap_start + 1)
-    puts "Adding mapped range #{found_mapping[1]...(found_mapping[1] + overlap_end - overlap_start)}"
+    puts "Adding mapped range #{found_mapping[1] + overlap_start...(found_mapping[1] + overlap_start + overlap_end - overlap_start)}"
     new_seed_ranges << mapped_range
 
     # Recursively add the non-overlapping ranges to see if they match other mappings
