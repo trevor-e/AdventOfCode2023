@@ -48,7 +48,7 @@ def convert_seeds(seed_ranges, mapping)
     overlap_end = [found_mapping[0].max, target_range.max].min
 
     # Add the overlapping range to the MAPPED value
-    mapped_range = SeedRange.new(start: found_mapping[1], length: overlap_end - overlap_start + 1)
+    mapped_range = SeedRange.new(start: found_mapping[1] + overlap_start, length: overlap_end - overlap_start + 1)
     puts "Adding mapped range #{found_mapping[1]...(found_mapping[1] + overlap_end - overlap_start)}"
     new_seed_ranges << mapped_range
 
