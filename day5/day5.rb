@@ -1,33 +1,12 @@
 require_relative '../utils'
 
-SeedRange = Data.define(:start, :length)
 AlmanacMap = Data.define(:source, :length, :dest)
-
-def parse_section_map(lines, section_name)
-  results = []
-  found_section = false
-  line_regex = /(\d+) (\d+) (\d+)/
-  lines.each do |line|
-    if line == section_name
-      found_section = true
-    elsif found_section
-      if line =~ line_regex
-        results << line.scan(line_regex).flatten.map(&:to_i)
-      else
-        break
-      end
-    end
-  end
-  results
-    .map { |r| AlmanacMap.new(source: r[1], length: r[2], dest: r[0]) }
-    .sort { |a, b| a.source <=> b.source }
-end
 
 def find_range_mapping(mapping, target)
   mapping.each do |map|
-    if target >= map[1] && target < map[1] + map[2]
-      extra = target - map[1]
-      return map[0] + extra
+    if target >= map.source && target < map.source + map.length
+      extra = target - map.source
+      return map.dest + extra
     end
   end
   target
@@ -60,57 +39,6 @@ def part_one
   puts seed_locations.min
 end
 
-def parse_range_map(lines, section_name)
-  parse_section_map(lines, section_name).to_h { |m| [(m.source)...(m.source + m.length), m.dest] }
-end
-
-# Current guesses:
-# 0
-# 166086528
-# 280549587
-# 953918455
-# correct answer -> 84206669
-def convert_seeds(seed_ranges, mapping)
-  new_seed_ranges = []
-  for seed_range in seed_ranges do
-    target_range = (seed_range.start)...(seed_range.start + seed_range.length)
-    range = mapping.keys.find { |r| r.intersect?(target_range) }
-
-    # mapping not found so include identity range
-    if !range
-      puts "No mapping found for #{target_range}"
-      new_seed_ranges << seed_range
-      next
-    end
-
-    # Entire range is covered by mapping so convert fully
-    if range.cover?(target_range)
-      puts "Full mapping found for #{target_range}"
-      new_seed_ranges << SeedRange.new(start: mapping[range], length: seed_range.length)
-      next
-    end
-
-    # Partial range is covered, so need to split into potentially 3 ranges with mappings
-    # First range is the mapped range
-    # Other ranges are identity ranges for the parts not covered by the mapping
-    max_start = [range.begin, target_range.begin].max
-    min_end = [range.end, target_range.end].min
-    puts "Adding partial mapping for #{mapping[range] + max_start}...#{mapping[range] + max_start + min_end - max_start}"
-    new_seed_ranges << SeedRange.new(start: mapping[range] + max_start, length: min_end - max_start)
-
-    if max_start > target_range.begin
-      puts "Adding identity range for start #{target_range.begin}...#{target_range.begin + max_start - target_range.begin}"
-      new_seed_ranges.concat(convert_seeds([SeedRange.new(start: target_range.begin, length: max_start - target_range.begin)], mapping))
-    end
-
-    if target_range.end > min_end
-      puts "Adding identity range for end #{min_end}...#{min_end + target_range.end - min_end}"
-      new_seed_ranges.concat(convert_seeds([SeedRange.new(start: min_end, length: target_range.end - min_end)], mapping))
-    end
-  end
-  new_seed_ranges.sort_by { |s| s.start }
-end
-
 def part_two
   input = File.read('day5/input.txt').split("\n")
   seed_ranges = input[0]
@@ -118,8 +46,8 @@ def part_two
     .split(' ')
     .map(&:to_i)
     .each_slice(2)
-    .map { |s| SeedRange.new(start: s[0], length: s[1]) }
-    .sort_by { |s| s.start }
+    .map { |s| s[0]..(s[0] + s[1]) }
+    .sort_by { |s| s.begin }
 
   seed_to_soil = parse_range_map(input, 'seed-to-soil map:')
   soil_to_fertilizer = parse_range_map(input, 'soil-to-fertilizer map:')
@@ -131,12 +59,93 @@ def part_two
 
   maps = [seed_to_soil, soil_to_fertilizer, fertilier_to_water, water_to_light, light_to_temperature, temperature_to_humidity, humidity_to_location]
   for map in maps do
-    seed_ranges = convert_seeds(seed_ranges, map)
+    new_seeds = []
+    for seed_range in seed_ranges do
+      converted_seeds = convert_seed(map, seed_range)
+      new_seeds.concat(converted_seeds)
+    end
+    seed_ranges = new_seeds
   end
 
-  puts seed_ranges.min_by { |s| s.start }.start
+  seed_ranges.sort_by! { |s| s.begin }
+  puts "Found result #{seed_ranges.first.begin}"
+end
+
+def convert_seed(map, seed_range)
+  new_seeds = []
+  for mapping in map do
+    mapping_range = mapping[0]
+    mapping_offset = mapping[1] - mapping_range.begin
+
+    # Skip since the seed range is outside of the mapping range
+    if seed_range.end < mapping_range.begin || seed_range.begin > mapping_range.end
+      next
+    end
+
+    # If the seed range is completely contained within the mapping range, then we can just add the offset
+    if mapping_range.cover?(seed_range)
+      puts "Mapping range covers seed range #{seed_range}"
+      new_seeds << Range.new(seed_range.begin + mapping_offset, seed_range.end + mapping_offset)
+      break
+    end
+
+    # If the seed range is partially contained within the mapping range, then we need to split it up
+    # into three separate ranges
+    if seed_range.cover?(mapping_range)
+      puts "Mapping range is contained within seed range #{seed_range}"
+      new_seeds.concat(convert_seed(map, Range.new(seed_range.begin, mapping_range.begin - 1)))
+      new_seeds << Range.new(mapping_range.begin + mapping_offset, mapping_range.end + mapping_offset)
+      new_seeds.concat(convert_seed(map, Range.new(mapping_range.end + 1, seed_range.end)))
+      break
+    end
+
+    # If the seed range is partially before the mapping range, then we need to split it up
+    if seed_range.begin <= mapping_range.begin && seed_range.end <= mapping_range.end
+      puts "Mapping range is partially before seed range #{seed_range}"
+      new_seeds << Range.new(mapping_range.begin + mapping_offset, seed_range.end + mapping_offset)
+      if seed_range.begin < mapping_range.begin
+        new_seeds.concat(convert_seed(map, Range.new(seed_range.begin, mapping_range.begin - 1)))
+      end
+      break
+    end
+
+    # If the seed range is partially after the mapping range, then we need to split it up
+    if seed_range.begin >= mapping_range.begin && seed_range.end >= mapping_range.end
+      puts "Mapping range is partially after seed range #{seed_range}"
+      new_seeds << Range.new(seed_range.begin + mapping_offset, mapping_range.end + mapping_offset)
+      if seed_range.end > mapping_range.end
+        new_seeds.concat(convert_seed(map, Range.new(mapping_range.end + 1, seed_range.end)))
+      end
+      break
+    end
+  end
+  new_seeds
+end
+
+def parse_range_map(lines, section_name)
+  parse_section_map(lines, section_name).to_h { |m| [Range.new(m.source, m.source + m.length - 1), m.dest] }
+end
+
+def parse_section_map(lines, section_name)
+  results = []
+  found_section = false
+  line_regex = /(\d+) (\d+) (\d+)/
+  lines.each do |line|
+    if line == section_name
+      found_section = true
+    elsif found_section
+      if line =~ line_regex
+        results << line.scan(line_regex).flatten.map(&:to_i)
+      else
+        break
+      end
+    end
+  end
+  results
+    .map { |r| AlmanacMap.new(source: r[1], length: r[2], dest: r[0]) }
+    .sort_by { |m| m.source }
 end
 
 if __FILE__ == $0
-  part_two
+  part_one
 end
